@@ -5,6 +5,8 @@ command line quantization/palette-generation tool using k-means clustering on pi
 
 - [features](#features)
 - [usage](#usage)
+  - [example: palette creation in rgb format with alpha](#example-palette-creation-in-rgb-format-with-alpha-output-is-colored-accordingly-in-terminals)
+  - [example: image quantization to reduced palette](#example-image-quantization-to-reduced-palette-file-formats-inferred-based-on-extension)
 - [installation](#installation)
 
 
@@ -31,18 +33,24 @@ Options:
   -s, --seed <number>    Optional RNG seed for reproducible results
   -o, --output <output>  Output file path
                          - If not provided, outputs to stdout
-  -f, --format <fmt>     Palette output format [default: hex] [possible values: hex, rgb]
+                         - With image file extensions, outputs an image file
+  -f, --format <fmt>     Palette output format [possible values: hex, rgb]
   -h, --help             Print help (see more with '--help')
   -V, --version          Print version
 ```
 
-Example (output is colored accordingly in terminals):
+#### Example: palette creation in rgb format with alpha (output is colored accordingly in terminals):
 ```sh
 $ qtizer wallpaper.png -k 3 -af rgb
 
 rgba(254, 254, 254, 0)
 rgba(191, 150, 132, 254)
 rgba(48, 45, 51, 254)
+```
+
+#### Example: image quantization to reduced palette (file formats inferred based on extension):
+```sh
+$ qtizer wallpaper.png -k 8 quantized.png
 ```
 
 

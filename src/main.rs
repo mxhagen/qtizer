@@ -1,11 +1,12 @@
-use clap::{CommandFactory, Parser};
+use clap::*;
+use image::*;
 use std::time::{SystemTime, UNIX_EPOCH};
-
-use crate::colors::ColorFormat;
 
 mod cli;
 mod colors;
 mod kmeans;
+
+use crate::colors::ColorFormat;
 
 fn main() {
     let args = cli::Args::parse();
@@ -34,7 +35,7 @@ fn main() {
 
     // run kmeans
     let pixels = img.pixels().cloned().collect::<Vec<_>>();
-    let (clusters, _assignments) = context.k_means(&pixels, args.number, args.iterations);
+    let (clusters, assignments) = context.k_means(&pixels, args.number, args.iterations);
 
     // handle output
     match args.output.or(args.output_positional) {
@@ -45,8 +46,10 @@ fn main() {
             &args.format.unwrap_or_default(),
         ),
 
-        // TODO: implement image output
-        // Some(output_file) if is_image_file_path(&output_file) => image_file_handler(&clusters, &assignments, output_file),
+        Some(output_file) if ImageFormat::from_path(&output_file).is_ok() => {
+            image_file_handler(&img, &clusters, &assignments, args.alpha, output_file)
+        }
+
         Some(output_file) => {
             let mut file =
                 std::fs::File::create(output_file).expect("failed to create output file");
@@ -60,6 +63,7 @@ fn main() {
     }
 }
 
+/// handle palette output to terminal or file
 fn palette_handler<W>(
     clusters: &[image::Rgba<u8>],
     writer: &mut W,
@@ -80,5 +84,52 @@ fn palette_handler<W>(
     for color in &clusters {
         ColorFormat::pretty_print_color_code(format, writer, color, alpha);
         writeln!(writer).expect("failed to write color to output");
+    }
+}
+
+/// handle image output to file
+fn image_file_handler(
+    img: &ImageBuffer<Rgba<u8>, Vec<u8>>,
+    clusters: &[image::Rgba<u8>],
+    assignments: &[usize],
+    alpha: bool,
+    output_file: String,
+) {
+    let (width, height) = img.dimensions();
+
+    // create new image by replacing each pixel with its cluster center
+    let quantized = assignments
+        .iter()
+        .flat_map(|&i| &clusters[i].0[..if alpha { 4 } else { 3 }])
+        .copied()
+        .collect::<Vec<_>>();
+
+    let status = match alpha {
+        true => {
+            let img = ImageBuffer::from_vec(width, height, quantized);
+            let img: ImageBuffer<Rgba<u8>, _> = img.expect("failed to create quantized image");
+            img.save(&output_file)
+        }
+        false => {
+            let img = ImageBuffer::from_vec(width, height, quantized);
+            let img: ImageBuffer<Rgb<u8>, _> = img.expect("failed to create quantized image");
+            img.save(&output_file)
+        }
+    };
+
+    // TODO: better errors handling logger
+    // save image with inferred format
+    match status {
+        Ok(_) => println!("saved quantized image to {}", output_file),
+        Err(err) => {
+            // errors here are unexpected, since extension alpha-capability
+            // is validated in `cli::semantically_validate`
+            cli::err_exit(
+                clap::error::ErrorKind::InvalidValue,
+                "unexpectedly failed to save quantized image.\n".to_string()
+                    + "try checking the output file format. (does it support alpha?)\n"
+                    + &format!("    ({err})"),
+            );
+        }
     }
 }

@@ -1,5 +1,7 @@
-use crate::colors::ColorFormat;
 use clap::*;
+use image::*;
+
+use crate::colors::ColorFormat;
 
 /// Quantization/palette-generation tool using k-means clustering on pixel dataI
 #[derive(Parser, Debug)]
@@ -27,8 +29,7 @@ pub struct Args {
 
     /// Output file path
     /// - If not provided, outputs to stdout
-    // TODO: implement image output
-    // /// - With image file extensions, outputs an image file
+    /// - With image file extensions, outputs an image file
     #[arg(
         short = 'o',
         long = "output",
@@ -43,13 +44,14 @@ pub struct Args {
     pub output_positional: Option<String>,
 
     /// Palette output format
-    #[arg(
-        short = 'f',
-        long = "format",
-        default_value = "hex",
-        value_name = "fmt"
-    )]
+    #[arg(short = 'f', long = "format", value_name = "fmt")]
     pub format: Option<ColorFormat>,
+
+    // TODO: add input alpha policy for opaque output images
+    // /// Transparency policy when input has alpha but output does not
+    // #[arg(short = 'p', long = "alpha-policy", value_name = "policy",)]
+    // pub alpha_policy: AlphaPolicy,
+
     // TODO: implement multi-threading
     // /// Number of workers to use [default: core count]
     // #[arg(short = 'j', long = "jobs",
@@ -59,35 +61,43 @@ pub struct Args {
 }
 
 /// semantic validation of arguments
+/// - `--format` cannot be specified when outputting an image file
+/// - some image formats do not support alpha (eg. jpg)
 pub fn semantically_validate(args: &Args) {
+    // check if `--format` is specified AND output has image file extension
     if args.format.is_some()
         && (args.output.clone())
             .or(args.output_positional.clone())
-            .is_some_and(is_image_file_path)
+            .is_some_and(|p| ImageFormat::from_path(p).is_ok())
     {
-        Args::command()
-            .error(
+        err_exit(
+            clap::error::ErrorKind::ArgumentConflict,
+            "cannot specify color-code format when outputting an image file.",
+        );
+    }
+
+    // check if output image format supports alpha channel
+    let output_opt = args.output.clone().or(args.output_positional.clone());
+    if args.alpha && output_opt.is_some() {
+        let output_file = output_opt.unwrap();
+        let filetype = ImageFormat::from_path(&output_file);
+
+        use ImageFormat::*;
+        if matches!(filetype, Ok(Jpeg | Bmp | Pnm | Tiff)) {
+            err_exit(
                 clap::error::ErrorKind::ArgumentConflict,
-                "cannot specify color format when outputting an image file.",
-            )
-            .exit();
+                format!(
+                    "the `{:?}` image format does not support alpha.",
+                    filetype.unwrap(),
+                ),
+            );
+        }
     }
 }
 
-// TODO: implement image output
-pub fn is_image_file_path<P>(file: P) -> bool
-where
-    P: AsRef<std::path::Path>,
-{
-    file.as_ref()
-        .extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|e| {
-            matches!(
-                e.to_lowercase().as_str(),
-                "png" | "jpg" | "jpeg" | "bmp" | "tiff" | "ppm"
-            )
-        })
+/// shorthand for `Args::command().error(...).exit()`
+pub fn err_exit(kind: clap::error::ErrorKind, message: impl std::fmt::Display) {
+    Args::command().error(kind, message).exit()
 }
 
 // TODO: implement static logger functionality for parsed arguments

@@ -1,5 +1,6 @@
-use crate::kmeans::Kmeansable;
 use image::Rgba;
+
+use crate::kmeans::Kmeansable;
 
 // TODO: implement k-means for `Rgb<u8>` pixel format
 //       for slightly less mem-usage and faster calculation
