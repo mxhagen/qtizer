@@ -1,7 +1,7 @@
 use clap::*;
 use image::*;
 
-use crate::colors::ColorFormat;
+use crate::colors::ColorCodeFormat;
 
 /// Quantization/palette-generation tool using k-means clustering on pixel dataI
 #[derive(Parser, Debug)]
@@ -45,7 +45,7 @@ pub struct Args {
 
     /// Palette output format
     #[arg(short = 'f', long = "format", value_name = "fmt")]
-    pub format: Option<ColorFormat>,
+    pub format: Option<ColorCodeFormat>,
 
     // TODO: add input alpha policy for opaque output images
     // /// Transparency policy when input has alpha but output does not

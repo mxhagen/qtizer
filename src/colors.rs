@@ -1,94 +1,91 @@
-use image::Rgba;
+use image::*;
 
 use crate::kmeans::Kmeansable;
 
-// TODO: implement k-means for `Rgb<u8>` pixel format
-//       for slightly less mem-usage and faster calculation
+/// marker trait for usable color types
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Color {
+    pub color_type: ColorType,
+    pub data: Vec<u8>,
+}
 
-impl Kmeansable for Rgba<u8> {
-    type Sum = Rgba<u32>;
+impl Kmeansable for Color {
+    type Sum = Vec<u32>;
 
-    /// black, transparent
     fn zero() -> Self::Sum {
-        Rgba([0, 0, 0, 0])
+        vec![0; 4]
     }
 
-    /// euclidean distance between two rgba colors
     fn distance(&self, other: &Self) -> f64 {
-        let dr = (self[0] as f64) - (other[0] as f64);
-        let dg = (self[1] as f64) - (other[1] as f64);
-        let db = (self[2] as f64) - (other[2] as f64);
-        let da = (self[3] as f64) - (other[3] as f64);
-        (dr * dr + dg * dg + db * db + da * da).sqrt()
+        self.data
+            .iter()
+            .zip(other.data.iter())
+            .map(|(a, b)| ((*a as f64) - (*b as f64)).powi(2))
+            .sum::<f64>()
+            .sqrt()
     }
 
-    /// add two rgba colors, returning a u32 sum to avoid overflow
     fn add(sum: &Self::Sum, other: &Self) -> Self::Sum {
-        Rgba([
-            sum[0] + other[0] as u32,
-            sum[1] + other[1] as u32,
-            sum[2] + other[2] as u32,
-            sum[3] + other[3] as u32,
-        ])
+        sum.iter()
+            .zip(&other.data)
+            .map(|(a, b)| a + *b as u32)
+            .collect()
     }
 
-    /// calculate the mean of a sum of rgba colors and a count
     fn div(sum: &Self::Sum, count: usize) -> Self {
-        if count == 0 {
-            // TODO: better error handling via static logger
-            panic!("tried to calculate mean of 0 colors (division by zero)");
-        }
+        let data = sum
+            .iter()
+            .map(|v| (v / count as u32) as u8)
+            .collect::<Vec<u8>>();
 
-        Rgba([
-            (sum[0] / count as u32) as u8,
-            (sum[1] / count as u32) as u8,
-            (sum[2] / count as u32) as u8,
-            (sum[3] / count as u32) as u8,
-        ])
+        Color {
+            color_type: match data.len() {
+                3 => ColorType::Rgb8,
+                4 => ColorType::Rgba8,
+                _ => unreachable!(
+                    "invalid color length. only rgb or rgba colors should ever be used here."
+                ),
+            },
+            data,
+        }
     }
 }
 
 /// calculate the rgba brightness (luminance)
-pub fn brightness(&Rgba([r, g, b, _]): &Rgba<u8>) -> u32 {
+pub fn brightness(color: &Color) -> u32 {
+    let &[r, g, b, ..] = &color.data[..] else {
+        unreachable!("invalid color type. only rgb or rgba colors should ever be used here.");
+    };
     ((0.299 * r as f32) + (0.587 * g as f32) + (0.114 * b as f32)) as u32
 }
 
 /// color code output format
 #[derive(Clone, Copy, Debug, Default, clap::ValueEnum)]
-pub enum ColorFormat {
+pub enum ColorCodeFormat {
     /// `#rrggbb` or `#rrggbbaa`
     #[default]
     Hex,
     /// `rgb(r, g, b)` or `rgba(r, g, b, a)`
     Rgb,
 }
-use ColorFormat::*;
 
-impl ColorFormat {
+impl ColorCodeFormat {
     /// pretty print a color code in the format
     /// when writing to terminals, uses ansi escape codes for color preview
-    pub fn pretty_print_color_code<W>(
-        format: &ColorFormat,
-        writer: &mut W,
-        color: &image::Rgba<u8>,
-        with_alpha: bool,
-    ) where
+    pub fn pretty_print_color_code<W>(format: &ColorCodeFormat, writer: &mut W, color: &Color)
+    where
         W: std::io::Write,
     {
         match format {
-            Hex => Self::colored_with_format(writer, color, with_alpha, Self::hex_color_code),
-            Rgb => Self::colored_with_format(writer, color, with_alpha, Self::rgb_color_code),
+            ColorCodeFormat::Hex => Self::colored_with_format(writer, color, Self::hex_color_code),
+            ColorCodeFormat::Rgb => Self::colored_with_format(writer, color, Self::rgb_color_code),
         }
     }
 
     /// pretty print wrapper that colors output
     /// given a callback providing the actual color formatting
-    fn colored_with_format<W>(
-        writer: &mut W,
-        color: &image::Rgba<u8>,
-        with_alpha: bool,
-        callback: fn(&mut W, &image::Rgba<u8>, bool),
-    ) where
+    fn colored_with_format<W>(writer: &mut W, color: &Color, callback: fn(&mut W, &Color))
+    where
         W: std::io::Write,
     {
         use std::io::IsTerminal;
@@ -96,51 +93,55 @@ impl ColorFormat {
 
         if !colorize {
             // just print formatted color, no ansi codes
-            return callback(writer, color, with_alpha);
+            return callback(writer, color);
         }
 
         // ensure text has enough contrast to colored background
-        match brightness(&color) {
+        match brightness(color) {
             ..128 => write!(writer, "\x1b[38;2;255;255;255m"), // dark  => white text
             _ => write!(writer, "\x1b[38;2;0;0;0m"),           // light => black text
         }
         .expect("failed to write output");
 
+        let &[r, g, b, ..] = &color.data[..] else {
+            unreachable!("invalid color type. only rgb or rgba colors should ever be used here.");
+        };
+
         // print ansi codes for colored background
-        write!(writer, "\x1b[48;2;{};{};{}m", color[0], color[1], color[2],)
-            .expect("failed to write output");
+        write!(writer, "\x1b[48;2;{r};{g};{b}m").expect("failed to write output");
 
         // call the actual color printing function
-        callback(writer, color, with_alpha);
+        callback(writer, color);
 
         // reset colors
         write!(writer, "\x1b[0m").expect("failed to write output");
     }
 
     /// print uncolored hex color code, with optional alpha
-    fn hex_color_code<W>(writer: &mut W, color: &image::Rgba<u8>, with_alpha: bool)
+    fn hex_color_code<W>(writer: &mut W, color: &Color)
     where
         W: std::io::Write,
     {
-        let Rgba([r, g, b, a]) = color;
+        let c = &color.data;
+        write!(writer, "#{:02x}{:02x}{:02x}", c[0], c[1], c[2]).expect("failed to write output");
 
-        write!(writer, "#{:02x}{:02x}{:02x}", r, g, b).expect("failed to write output");
-
-        if with_alpha {
-            write!(writer, "{:02x}", a).expect("failed to write output");
+        if color.color_type == ColorType::Rgba8 {
+            write!(writer, "{:02x}", c[3]).expect("failed to write output");
         }
     }
 
     /// print uncolored rgb color code, with optional alpha
-    fn rgb_color_code<W>(writer: &mut W, color: &image::Rgba<u8>, with_alpha: bool)
+    fn rgb_color_code<W>(writer: &mut W, color: &Color)
     where
         W: std::io::Write,
     {
-        let Rgba([r, g, b, a]) = color;
-
-        match with_alpha {
-            true => write!(writer, "rgba({}, {}, {}, {})", r, g, b, a),
-            false => write!(writer, "rgb({}, {}, {})", r, g, b),
+        let c = &color.data;
+        match color.color_type {
+            ColorType::Rgba8 => write!(writer, "rgba({}, {}, {}, {})", c[0], c[1], c[2], c[3]),
+            ColorType::Rgb8 => write!(writer, "rgb({}, {}, {})", c[0], c[1], c[2]),
+            _ => unreachable!(
+                "invalid color type. only rgb or rgba colors should ever be used here."
+            ),
         }
         .expect("failed to write output")
     }

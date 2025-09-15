@@ -1,6 +1,6 @@
 [package]
 name = "qtizer"
-version = "0.6.0"
+version = "0.6.1"
 edition = "2024"
 description = "Quantization/palette-generation tool using k-means clustering on pixel data"
 readme = "README.md"
