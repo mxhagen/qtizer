@@ -44,21 +44,69 @@ impl Context<SmallRng> {
             .cloned()
             .collect::<Vec<_>>();
 
+        // make cursor invisible
+        eprint!("\x1b[?25l");
+
         for i in 0..iterations {
             // TODO: implement static logger functionality for progress
-            eprintln!("processing k-means iteration {}/{}...", i + 1, iterations);
+            //       once implemented, replace other eprint(ln)! calls too
+            eprintln!(
+                "processing k-means iteration: [ {:>9} / {:>9} ]...",
+                i + 1,
+                iterations
+            );
+
+            // precompute cluster distances to skip some distance calculations later
+            // only set for i < j -- note: dist[i][j] == dist[j][i]
+            let mut cluster_distances = vec![vec![0.0; k]; k];
+            for i in 0..k {
+                for j in (i + 1)..k {
+                    let dist = clusters[i].distance(&clusters[j]);
+                    cluster_distances[i][j] = dist; // i < j case only
+                }
+            }
 
             // assign each point to the nearest cluster
             for (i, point) in data.iter().enumerate() {
-                let min_idx = clusters
-                    .iter()
-                    .enumerate()
-                    .min_by(|(_, a), (_, b)| f64::total_cmp(&a.distance(point), &b.distance(point)))
-                    .unwrap()
-                    .0;
+                let mut closest_idx = 0;
+                let mut closest_dist = clusters[0].distance(point);
 
-                assignments[i] = min_idx;
+                // print progress every 500 points
+                if i % 500 == 0 {
+                    if i > 0 {
+                        // restore cursor position (write over previous status)
+                        eprint!("\x1b[1F");
+                    }
+                    let label_len = "processing k-means iteration".len();
+                    eprintln!(
+                        "{:>label_len$}: [ {:>9} / {:>9} ]...",
+                        "assigning point",
+                        i,
+                        data.len()
+                    );
+                }
+
+                for j in 1..k {
+                    // skip distance calculation if the cluster is too far away
+                    let (a, b) = (closest_idx.min(j), closest_idx.max(j));
+                    if cluster_distances[a][b] >= 2.0 * closest_dist {
+                        // d(c_j, c_min) >= 2 * d(p, c_min)
+                        // d(p,   c_j  ) >=     d(p, c_min)
+                        continue;
+                    }
+
+                    let dist = clusters[j].distance(point);
+                    if dist < closest_dist {
+                        closest_dist = dist;
+                        closest_idx = j;
+                    }
+                }
+
+                assignments[i] = closest_idx;
             }
+
+            // restore cursor position (write over previous status)
+            eprint!("\x1b[2F");
 
             // move cluster to mean of its assigned points
             let mut counts: Vec<usize> = vec![0; k];
@@ -76,6 +124,9 @@ impl Context<SmallRng> {
                 }
             }
         }
+
+        // make cursor visible again
+        eprint!("\x1b[?25h");
 
         (clusters, assignments)
     }

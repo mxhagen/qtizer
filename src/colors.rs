@@ -16,13 +16,14 @@ impl Kmeansable for Color {
         vec![0; 4]
     }
 
+    /// distance function, according to which clustering is performed
+    /// (impl avoids sqrt for performance -- uses squared distance)
     fn distance(&self, other: &Self) -> f64 {
         self.data
             .iter()
             .zip(other.data.iter())
             .map(|(a, b)| ((*a as f64) - (*b as f64)).powi(2))
             .sum::<f64>()
-            .sqrt()
     }
 
     fn add(sum: &Self::Sum, other: &Self) -> Self::Sum {
